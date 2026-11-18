@@ -8,11 +8,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +27,28 @@ import (
 // version is the build version, injected at release time via
 // -ldflags "-X main.version=<tag>". Defaults to "dev" for local builds.
 var version = "dev"
+
+// defaultListenAddr keeps the repository's loopback-only local default while
+// honoring the PORT/ARTEX_BIND contract used by managed cloud containers.
+func defaultListenAddr() string {
+	if addr := strings.TrimSpace(os.Getenv("ARTEX_ADDR")); addr != "" {
+		return addr
+	}
+	port := strings.TrimSpace(os.Getenv("PORT"))
+	if port == "" {
+		port = "8787"
+	}
+	if bind := strings.TrimSpace(os.Getenv("ARTEX_BIND")); bind != "" {
+		if strings.Contains(bind, ":") {
+			return bind
+		}
+		return net.JoinHostPort(bind, port)
+	}
+	if os.Getenv("PORT") != "" {
+		return ":" + port
+	}
+	return "127.0.0.1:8787"
+}
 
 const banner = `
     _    ____ _____ _______  __
@@ -52,7 +76,7 @@ func main() {
 
 func run() int {
 	var (
-		addr    = flag.String("addr", "127.0.0.1:8787", "HTTP listen address (default accepts local connections only; use :8787 to serve other hosts)")
+		addr    = flag.String("addr", defaultListenAddr(), "HTTP listen address (default accepts local connections only; use :8787 to serve other hosts)")
 		dataDir = flag.String("data", filepath.Join(config.BaseDir(), "data"), "data directory for SQLite stores (default: data/ next to the executable)")
 		proxy   = flag.String("proxy", "127.0.0.1:8788", "traffic recording proxy address (empty to disable)")
 	)

@@ -3,8 +3,9 @@
 // §4.3 (planner) and §4.4 (work agent).
 //
 // Provider configuration is read from the environment so the system runs with
-// any Anthropic- or OpenAI-format endpoint. If no key is configured, FromEnv
-// returns ok=false and the exploration engine stays idle (an LLM is required).
+// the managed internal OpenAI-compatible service or any Anthropic-/OpenAI-format
+// endpoint. The managed service path uses the platform's server-side credential,
+// so users do not need to paste an external provider key into the UI.
 package agent
 
 import (
@@ -137,18 +138,25 @@ func compactionConfig(windowTokens int) *compaction.Config {
 
 // FromEnv resolves the LLM provider config:
 //
-//	ARTEX_LLM_PROVIDER = anthropic|openai (default: inferred from keys)
-//	ARTEX_LLM_MODEL    = model id        (default: per provider)
-//	ARTEX_LLM_BASE_URL = endpoint        (optional)
-//	ARTEX_LLM_PROXY    = proxy URL        (optional; http/https/socks5)
-//	ANTHROPIC_API_KEY / OPENAI_API_KEY         = credentials
+//		ARTEX_LLM_PROVIDER = internal|anthropic|openai (default: internal when the
+//	                            managed service variables are present, otherwise inferred)
+//		ARTEX_LLM_MODEL    = model id        (default: per provider)
+//		ARTEX_LLM_BASE_URL = endpoint        (optional)
+//		ARTEX_LLM_PROXY    = proxy URL        (optional; http/https/socks5)
+//		ANTHROPIC_API_KEY / OPENAI_API_KEY         = credentials
+//		MANUS_API_URL / MANUS_API_KEY              = managed internal service credentials
 func FromEnv() (Config, bool) {
-	prov := os.Getenv("ARTEX_LLM_PROVIDER")
-	anthKey := os.Getenv("ANTHROPIC_API_KEY")
-	oaiKey := os.Getenv("OPENAI_API_KEY")
+	prov := strings.ToLower(strings.TrimSpace(os.Getenv("ARTEX_LLM_PROVIDER")))
+	manusURL := strings.TrimRight(strings.TrimSpace(os.Getenv("MANUS_API_URL")), "/")
+	manusKey := strings.TrimSpace(os.Getenv("MANUS_API_KEY"))
+	anthKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
+	oaiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	hasManagedService := manusURL != "" && manusKey != ""
 
 	if prov == "" {
 		switch {
+		case hasManagedService:
+			prov = "internal"
 		case anthKey != "":
 			prov = "anthropic"
 		case oaiKey != "":
@@ -159,22 +167,55 @@ func FromEnv() (Config, bool) {
 	}
 
 	c := Config{
-		BaseURL: os.Getenv("ARTEX_LLM_BASE_URL"),
+		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("ARTEX_LLM_BASE_URL")), "/"),
 		Model:   os.Getenv("ARTEX_LLM_MODEL"),
 		Proxy:   strings.TrimSpace(os.Getenv("ARTEX_LLM_PROXY")),
 		// 默认流式;ARTEX_LLM_STREAM=false/0/off 显式关闭走非流式。
 		Stream: !isFalsy(os.Getenv("ARTEX_LLM_STREAM")),
 	}
 	switch prov {
+	case "internal", "manus", "platform":
+		if !hasManagedService {
+			return Config{}, false
+		}
+		c.Format = llm.FormatOpenAI
+		c.APIKey = manusKey
+		if c.BaseURL == "" {
+			c.BaseURL = manusURL + "/v1"
+		}
+		if c.Model == "" {
+			c.Model = strings.TrimSpace(os.Getenv("MANUS_LLM_MODEL"))
+		}
+		if c.Model == "" {
+			c.Model = "gpt-5"
+		}
 	case "openai":
 		c.Format = llm.FormatOpenAI
 		c.APIKey = oaiKey
+		if c.APIKey == "" && hasManagedService {
+			c.APIKey = manusKey
+			if c.BaseURL == "" {
+				c.BaseURL = manusURL + "/v1"
+			}
+		}
+		if c.Model == "" {
+			c.Model = strings.TrimSpace(os.Getenv("MANUS_LLM_MODEL"))
+		}
 		if c.Model == "" {
 			c.Model = "gpt-4o"
 		}
 	case "openai-responses":
 		c.Format = llm.FormatOpenAIResponses
 		c.APIKey = oaiKey
+		if c.APIKey == "" && hasManagedService {
+			c.APIKey = manusKey
+			if c.BaseURL == "" {
+				c.BaseURL = manusURL + "/v1"
+			}
+		}
+		if c.Model == "" {
+			c.Model = strings.TrimSpace(os.Getenv("MANUS_LLM_MODEL"))
+		}
 		if c.Model == "" {
 			c.Model = "gpt-5"
 		}

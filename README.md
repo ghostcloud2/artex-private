@@ -88,7 +88,7 @@ The original (Chinese UI) screens are available in [`README.zh.md`](README.zh.md
 
 ## Quick start (Docker Compose)
 
-> **Prerequisites:** Docker and Docker Compose. The database is **PostgreSQL**, brought up by compose. Exploration requires an **LLM** (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; can also be set in the UI).
+> **Prerequisites:** Docker and Docker Compose. The database is **PostgreSQL**, brought up by compose. In a managed ARTEX cloud deployment, the app automatically uses the platform's server-side OpenAI-compatible LLM service (`MANUS_API_URL`/`MANUS_API_KEY`), so users do not need to provide an external model-provider key. Standalone deployments can still use `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 
 > **Image:** the `artex` service in `docker-compose.yml` pulls `ghcr.io/jiwoochris/artex-global`, the global-edition image this repository publishes to GitHub Container Registry on every release tag (`v*`). The default tag is `latest` (the most recent release); set `ARTEX_TAG` in `.env` to pin a specific release. Upstream's original image `autumn27/artex` has been taken down from Docker Hub and is no longer used.
 
@@ -137,7 +137,9 @@ Upstream provides several methods: an install script (`./install.sh`), precompil
 }
 ```
 
-**LLM:** `export ANTHROPIC_API_KEY=sk-...` (or `OPENAI_API_KEY`), or enter it on the UI's "LLM settings" page. Optional environment variables: `ARTEX_LLM_PROVIDER` / `ARTEX_LLM_MODEL` / `ARTEX_LLM_BASE_URL` / `ARTEX_LLM_PROXY`. To use a domestic or open model, point `ARTEX_LLM_BASE_URL` at an OpenAI-compatible endpoint.
+**LLM:** Managed cloud deployments prefer the internal OpenAI-compatible service exposed through `MANUS_API_URL` and `MANUS_API_KEY`; these are server-side platform values and are never sent to the browser or requested from the user. Set `ARTEX_LLM_PROVIDER=internal` to make that choice explicit, or leave it unset for automatic selection. Optional environment variables are `ARTEX_LLM_MODEL` / `MANUS_LLM_MODEL` / `ARTEX_LLM_BASE_URL` / `ARTEX_LLM_PROXY`. Standalone deployments may still use `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, or point `ARTEX_LLM_BASE_URL` at another OpenAI-compatible endpoint.
+
+The cloud container starts a private PostgreSQL instance on a Unix socket when `ARTEX_PG_DSN` is not supplied. Set `ARTEX_PG_DSN` to use an external PostgreSQL service instead. The internal database is intended to make a single cloud instance self-contained; use external PostgreSQL for durable multi-instance production data.
 
 **Output language:** this edition forces user-facing output into the selected language (English by default) via a small, code-fixed directive appended to each role's system prompt (it does not translate the reasoning body). Switch languages in Settings, or adapt that directive in `agent/prompt.go` (`langDirective`).
 
